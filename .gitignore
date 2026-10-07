@@ -1,0 +1,30 @@
+# --- Terraform ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Build artifacts (code zips produced by Terraform, used from Step 3c)
+build/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Local environment / secrets ---
+.env
+*.pem
+
+# Learning guides (remove this line if you want to commit them)
+guide/
