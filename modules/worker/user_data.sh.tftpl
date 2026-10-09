@@ -1,0 +1,42 @@
+#!/bin/bash
+# First boot of a worker instance. Rendered by Terraform (templatefile), run once by cloud-init.
+# Debug on the instance: sudo cat /var/log/cloud-init-output.log ; sudo journalctl -u worker
+set -euxo pipefail
+
+dnf install -y python3.12 unzip
+
+useradd --system --home-dir /opt/worker --shell /sbin/nologin worker
+
+aws s3 cp "s3://${artifact_bucket}/${artifact_key}" /tmp/worker.zip --region ${region}
+mkdir -p /opt/worker
+unzip -o /tmp/worker.zip -d /opt/worker
+python3.12 -m venv /opt/worker/.venv
+/opt/worker/.venv/bin/pip install --no-cache-dir -r /opt/worker/requirements.txt
+chown -R worker:worker /opt/worker
+
+cat > /etc/systemd/system/worker.service <<'UNIT'
+[Unit]
+Description=Job Processor worker (SQS consumer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=worker
+WorkingDirectory=/opt/worker
+Environment=AWS_DEFAULT_REGION=${region}
+Environment=QUEUE_URL=${queue_url}
+Environment=MAX_RECEIVE_COUNT=${max_receive_count}
+Environment=DB_HOST=${db_host}
+Environment=DB_PORT=${db_port}
+Environment=DB_NAME=${db_name}
+Environment=DB_SECRET_ARN=${db_secret_arn}
+ExecStart=/opt/worker/.venv/bin/python worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now worker.service

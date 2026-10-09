@@ -37,3 +37,23 @@ output "db_secret_arn" {
   description = "Secrets Manager secret with the DB master credentials."
   value       = module.db.master_user_secret_arn
 }
+
+output "alb_url" {
+  description = "Public URL of the API."
+  value       = "http://${module.alb.dns_name}"
+}
+
+output "app_asg_name" {
+  description = "Auto Scaling Group of the API instances."
+  value       = module.app.asg_name
+}
+
+output "worker_asg_name" {
+  description = "Auto Scaling Group of the worker instance."
+  value       = module.worker.asg_name
+}
+
+output "artifacts_bucket" {
+  description = "S3 bucket holding the code zips."
+  value       = aws_s3_bucket.artifacts.id
+}

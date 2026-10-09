@@ -49,3 +49,33 @@ variable "db_allocated_storage" {
   type        = number
   default     = 20
 }
+
+variable "app_port" {
+  description = "Port the API listens on behind the ALB."
+  type        = number
+  default     = 8000
+}
+
+variable "app_instance_type" {
+  description = "EC2 instance type for the API tier."
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "app_instance_count" {
+  description = "Number of API instances (spread across the AZs)."
+  type        = number
+  default     = 2
+}
+
+variable "worker_instance_type" {
+  description = "EC2 instance type for the worker tier."
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "worker_instance_count" {
+  description = "Number of worker instances."
+  type        = number
+  default     = 1
+}

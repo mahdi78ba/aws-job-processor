@@ -1,0 +1,44 @@
+#!/bin/bash
+# First boot of an API instance. Rendered by Terraform (templatefile), run once by cloud-init.
+# Debug on the instance: sudo cat /var/log/cloud-init-output.log ; sudo journalctl -u app
+set -euxo pipefail
+
+# Amazon Linux 2023 ships Python 3.9; our dependencies need >= 3.10.
+dnf install -y python3.12 unzip
+
+# Unprivileged user for the service
+useradd --system --home-dir /opt/app --shell /sbin/nologin app
+
+# Download the exact code version this launch template points to (IAM role: s3:GetObject)
+aws s3 cp "s3://${artifact_bucket}/${artifact_key}" /tmp/app.zip --region ${region}
+mkdir -p /opt/app
+unzip -o /tmp/app.zip -d /opt/app
+python3.12 -m venv /opt/app/.venv
+/opt/app/.venv/bin/pip install --no-cache-dir -r /opt/app/requirements.txt
+chown -R app:app /opt/app
+
+cat > /etc/systemd/system/app.service <<'UNIT'
+[Unit]
+Description=Job Processor API (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=app
+WorkingDirectory=/opt/app
+Environment=AWS_DEFAULT_REGION=${region}
+Environment=QUEUE_URL=${queue_url}
+Environment=DB_HOST=${db_host}
+Environment=DB_PORT=${db_port}
+Environment=DB_NAME=${db_name}
+Environment=DB_SECRET_ARN=${db_secret_arn}
+ExecStart=/opt/app/.venv/bin/uvicorn main:app --host 0.0.0.0 --port ${app_port}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now app.service
