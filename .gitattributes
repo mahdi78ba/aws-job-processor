@@ -1,0 +1,2 @@
+# Force LF line endings. Shell scripts and cloud-init user_data break with Windows CRLF ("bash\r: not found").
+* text=auto eol=lf
