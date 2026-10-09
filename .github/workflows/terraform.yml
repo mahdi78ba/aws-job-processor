@@ -1,0 +1,123 @@
+name: terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "worker/**"
+      - "modules/**"
+      - "environments/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply the plan to dev (waits for approval in the dev environment)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One Terraform run at a time against dev (the S3 lockfile also protects the state itself).
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.16.5
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: eu-central-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  plan:
+    name: fmt, validate, plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: environments/dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # Public repo: hide the company account ID wherever it appears in the logs (ARNs, URLs).
+      - name: Check AWS credentials and mask the account ID
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::${ACCOUNT_ID}"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive ../..
+
+      - name: terraform init
+        run: terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: terraform plan
+        run: terraform plan -out=tfplan -lock-timeout=5m
+
+      - name: Plan summary
+        run: |
+          {
+            echo "### Terraform plan: dev"
+            echo '~~~'
+            terraform show -no-color tfplan | grep -E '^ *# .* (will|must) be |^Plan:|^No changes' || true
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The apply job must apply exactly this reviewed plan, and needs the code zips it references.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tfplan
+          path: |
+            environments/dev/tfplan
+            build/
+          retention-days: 3
+          if-no-files-found: error
+
+  apply:
+    name: apply (dev)
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && inputs.apply
+    runs-on: ubuntu-latest
+    environment: dev # protection rule: the job pauses until a reviewer approves it
+    defaults:
+      run:
+        working-directory: environments/dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check AWS credentials and mask the account ID
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::${ACCOUNT_ID}"
+
+      # Restores environments/dev/tfplan and build/*.zip at the paths the plan expects.
+      - uses: actions/download-artifact@v8
+        with:
+          name: tfplan
+
+      - name: terraform init
+        run: terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      # Applying a saved plan: no prompt, and Terraform refuses if the state changed since the plan.
+      - name: terraform apply
+        run: terraform apply -lock-timeout=5m tfplan
+
+      - name: Deployment summary
+        run: |
+          echo "### API URL: $(terraform output -raw alb_url)" >> "$GITHUB_STEP_SUMMARY"
