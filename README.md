@@ -64,4 +64,3 @@ flowchart LR
 3. Test: `curl -X POST http://<alb_dns>/jobs ...` then `curl http://<alb_dns>/jobs/<id>`
 4. Destroy: `terraform destroy -auto-approve`
 
-> Coming soon: detailed quickstart, trade-offs, cost notes, CV bullets and interview talking points.
